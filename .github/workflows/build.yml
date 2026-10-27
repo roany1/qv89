@@ -1,0 +1,63 @@
+name: Build QV89
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: Windows
+          - os: macos-14
+            name: macOS
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Configure (macOS universal)
+        if: runner.os == 'macOS'
+        run: cmake -B build -G Xcode -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+
+      - name: DSP + ROM tests
+        shell: bash
+        run: |
+          T=build/Release; [ -f "$T/qv89_dsp_test" ] || [ -f "$T/qv89_dsp_test.exe" ] || T=build
+          "$T/qv89_dsp_test"
+          if [ -f rom/qv_v107.bin ]; then "$T/qv89_rom_test" rom/qv_v107.bin factory_bank.syx; fi
+
+      - name: Ad-hoc sign (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          for p in build/QV89_artefacts/Release/VST3/QV89.vst3 build/QV89_artefacts/Release/AU/QV89.component build/QV89_artefacts/Release/Standalone/QV89.app; do
+            codesign --force --deep -s - "$p"
+          done
+
+      - name: pluginval
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            curl -sSL -o pv.zip https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_Windows.zip
+            unzip -o pv.zip >/dev/null; ./pluginval.exe --strictness-level 8 --validate-in-process --skip-gui-tests build/QV89_artefacts/Release/VST3/QV89.vst3
+          else
+            curl -sSL -o pv.zip https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_macOS.zip
+            unzip -o pv.zip >/dev/null; ./pluginval.app/Contents/MacOS/pluginval --strictness-level 8 --validate-in-process --skip-gui-tests build/QV89_artefacts/Release/VST3/QV89.vst3
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: QV89-${{ matrix.name }}
+          path: |
+            build/QV89_artefacts/Release/VST3
+            build/QV89_artefacts/Release/AU
+            build/QV89_artefacts/Release/Standalone
