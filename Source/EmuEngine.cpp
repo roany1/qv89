@@ -12,7 +12,14 @@ void EmuEngine::runMachineFor (double seconds)
 void EmuEngine::bootFastForward (bool cold)
 {
     machine.powerOn (cold);
-    runMachineFor (3.4);                                  // boot banner
+    // boot banner: run in fast-forward but keep the LCD frames so the editor can replay them in real time
+    bootFrames.clear();
+    for (int i = 0; i < 68; ++i)
+    {
+        runMachineFor (0.05);
+        BootFrame fr; fr.t = (float) (i + 1) * 0.05f; fr.line0 = machine.lcdLine (0); fr.line1 = machine.lcdLine (1);
+        if (bootFrames.empty() || bootFrames.back().line0 != fr.line0 || bootFrames.back().line1 != fr.line1) bootFrames.push_back (fr);
+    }
     auto press = [this] (int key) { machine.setKey (key, true); runMachineFor (0.08); machine.setKey (key, false); runMachineFor (0.15); };
     if (cold)
     {

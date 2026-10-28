@@ -95,7 +95,13 @@ void Lcd::paint (juce::Graphics& g)
     const int cols = 16;
     const float cw = (glass.getWidth() - 10.0f) / (float) cols;
     const float ch = (glass.getHeight() - 10.0f) / 2.0f;
-    const auto font = lcdFont (ch * 0.86f);
+    auto font = lcdFont (ch * 0.86f);
+    {
+        // keep every glyph inside its cell whatever monospaced font the OS provides
+        juce::GlyphArrangement ga; ga.addLineOfText (font, "W", 0.0f, 0.0f);
+        const float gw = ga.getBoundingBox (0, -1, true).getWidth();
+        if (gw > cw * 0.92f) font.setHorizontalScale (cw * 0.92f / gw);
+    }
     for (int line = 0; line < 2; ++line)
     {
         const juce::String& s = line == 0 ? l1 : l2;
@@ -104,11 +110,15 @@ void Lcd::paint (juce::Graphics& g)
             const float cx = glass.getX() + 5.0f + (float) i * cw, cy = glass.getY() + 5.0f + (float) line * ch;
             g.setColour (col::lcdInk.withAlpha (0.06f));
             g.fillRect (cx + 1.0f, cy + 2.0f, cw - 2.0f, ch - 4.0f);   // ghost character cell
-            if (i < s.length())
+            if (i < s.length() && s[i] != ' ')
             {
+                // drawSingleLineText never drops a glyph that is wider than its cell
+                // (drawText does, which left the LCD blank with wide monospaced fonts such as Consolas)
                 g.setColour (col::lcdInk);
                 g.setFont (font);
-                g.drawText (juce::String::charToString (s[i]), juce::Rectangle<float> (cx, cy, cw, ch), juce::Justification::centred, false);
+                const float baseline = cy + (ch + font.getAscent() - font.getDescent()) * 0.5f;
+                g.drawSingleLineText (juce::String::charToString (s[i]), juce::roundToInt (cx + cw * 0.5f), juce::roundToInt (baseline),
+                                      juce::Justification::horizontallyCentred);
             }
             if (line == cLine && i == cCol)
             {
@@ -346,6 +356,13 @@ Content::Content (QV89Processor& p) : proc (p)
     setSize (W, H);          // after all children exist: triggers resized()
     setSize (W, H);          // after all children exist: triggers resized()
     selectFunction (F_REVERB);
+    if (proc.emulationActive() && ! proc.bootSplashShown)
+    {
+        // replay the firmware's power-on screen at its real speed
+        proc.bootSplashShown = true;
+        boot = proc.emuBootLcd();
+        bootStartMs = juce::Time::getMillisecondCounterHiRes();
+    }
     startTimerHz (30);
 }
 
@@ -367,12 +384,14 @@ void Content::paint (juce::Graphics& g)
         for (float y : { 34.0f, 156.0f }) g.fillRoundedRectangle (x + 6.0f, y - 6.0f, 16.0f, 12.0f, 6.0f);
     }
     // brand
-    g.setColour (col::text); g.setFont (uiFont (40.0f).italicised());
-    g.drawText ("QV-89", juce::Rectangle<int> (44, 26, 190, 48), juce::Justification::left);
+    g.setColour (col::text); g.setFont (uiFont (17.0f));
+    g.drawText ("ALESIS", juce::Rectangle<int> (46, 20, 190, 20), juce::Justification::left);
+    g.setFont (uiFont (31.0f).italicised());
+    g.drawText ("QUADRAVERB", juce::Rectangle<int> (44, 40, 200, 36), juce::Justification::left);
     g.setColour (col::amber); g.setFont (uiFont (10.5f));
-    g.drawText ("QUAD DIGITAL EFFECTS PROCESSOR", juce::Rectangle<int> (46, 72, 220, 14), juce::Justification::left);
+    g.drawText ("16 BIT DIGITAL EFFECTS PROCESSOR", juce::Rectangle<int> (46, 76, 220, 14), juce::Justification::left);
     g.setColour (col::dim); g.setFont (uiFont (9.0f, false));
-    g.drawText ("16 BIT / 4 EFFECTS / 5 CONFIGS", juce::Rectangle<int> (46, 86, 190, 12), juce::Justification::left);
+    g.drawText ("QV-89 EMULATION / FIRMWARE V1.07", juce::Rectangle<int> (46, 90, 200, 12), juce::Justification::left);
 
     // headroom LEDs
     const char* lbl[4] = { "-30", "-18", "-6", "CLIP" };
@@ -626,6 +645,19 @@ void Content::emuKeyState (int key, bool down)
 
 void Content::updateEmuPanel()
 {
+    if (! boot.empty())
+    {
+        const float t = (float) ((juce::Time::getMillisecondCounterHiRes() - bootStartMs) * 0.001);
+        if (t < boot.back().t)
+        {
+            const EmuEngine::BootFrame* fr = &boot.front();
+            for (auto& b : boot) if (b.t <= t) fr = &b;
+            lcd.setLines (juce::String (fr->line0), juce::String (fr->line1));
+            for (auto* b : funcButtons) b->lit = false;
+            return;
+        }
+        boot.clear();
+    }
     const auto p = proc.emuPanel();
     auto conv = [] (const char* s)
     {

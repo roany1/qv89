@@ -119,6 +119,8 @@ private:
     juce::TextButton engineBtn, fileBtn { "FILE..." };
     bool keyDown[16] {};
     bool wasEmu = false;
+    std::vector<EmuEngine::BootFrame> boot;
+    double bootStartMs = 0;
     juce::Viewport programView;
     juce::Component programHolder;
     std::unique_ptr<juce::FileChooser> chooser;

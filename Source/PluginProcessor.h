@@ -71,6 +71,8 @@ public:
     bool romAvailable() const { return emu.ready(); }
     EmuEngine::Panel emuPanel() const { return emu.panel(); }
     void emuKey (int key, bool down) { emu.postKey (key, down); }
+    std::vector<EmuEngine::BootFrame> emuBootLcd() const { return emu.bootLcd(); }
+    bool bootSplashShown = false;       // the power-on screen is replayed once per plugin instance
     juce::String loadRomImage (const juce::File& f);
 
 private:

@@ -20,6 +20,9 @@ public:
         uint32_t serial = 0;              // increments every audio block
     };
 
+    struct BootFrame { float t = 0; std::string line0, line1; };
+    std::vector<BootFrame> bootLcd() const { const juce::SpinLock::ScopedLockType l (machineLock); return bootFrames; }
+
     bool init (const uint8_t* rom, size_t size, const std::vector<uint8_t>* savedSram);
     bool ready() const { return isReady; }
     void prepare (double hostRate, int maxBlock);
@@ -51,7 +54,8 @@ private:
     double hostRate = 44100;
     int latency = 0;
     bool isReady = false;
-    juce::SpinLock machineLock;
+    mutable juce::SpinLock machineLock;
+    std::vector<BootFrame> bootFrames;
     juce::SpinLock sramLock;
     std::vector<uint8_t> sramCopy;
     int sramCopyCountdown = 0;
